@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Tana PGP - Options</title>
+    <link rel="stylesheet" href="../css/bootstrap.css">
+</head>
+
+<body style="margin-right: 10%; margin-left: 10%; margin-top: 5em; margin-bottom: 5em;">
+    <h1>Tana PGP - Options</h1>
+    <p>Simple, fast, secure</p><a href="about.html">About the extension</a>
+    <hr>
+
+    <!-- generate and modify key pair form-->
+    <form>
+        <div class="container">
+            <div class="row">
+                <div name="input" class="col">
+                    <h3>Public Key</h3>
+                    <textarea name="public-key" id="public-key" cols="30" rows="10">
+                </textarea>
+                </div>
+
+                <div name="input" class="col">
+                    <h3 style="position: relative;">Private Key</h3>
+                    <textarea name="private-key" id="private-key" cols="30" rows="10">
+                </textarea>
+                </div>
+                <br><br>
+            </div>
+        </div>
+    </form>
+
+    </div>
+    <!-- To add a custom key pair-->
+    <button id="modify-key" style="margin-top: 1em; margin-bottom: 2em;" value="Modify key Pair">Modify Key
+        Pair</button>
+
+    <!-- For generate key-->
+    <button type="submit" id="generate-key" style="margin-top: 1em; margin-bottom: 2em;"
+        value="Modify key Pair">Generate Key Pair</button>
+
+    <!-- For Deleting Key Pair -->
+    <button type="submit" id="delete-keys" value="Delete Key Pair" style="margin-right: 10em;" name="deleteKeys">Delete
+        Key pair</button>
+
+
+    <br>
+    </form>
+    <!-- JSencrypt library and option.js srcipt importation-->
+    <script src="../js/js-encrypt.js"></script>
+    <script src="options.js"></script>
+</body>
+
+
+</html>

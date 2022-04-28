@@ -1,0 +1,33 @@
+{
+    "manifest_version": 2,
+    "name": "Tana PGP",
+    "description": "Verifies PGP signed pages for extra security against malicious or breached servers.",
+    "version": "0.5.0",
+    "homepage_url": "https://github.com/tasn/webext-signed-pages",
+    "options_ui": {
+        "page": "options/options.html"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "js/crypto.js",
+                "js/js-encrypt.js",
+                "js/jquery.min.js",
+                "auto.js"
+            ],
+            "run_at": "document_start"
+        }
+    ],
+    "web_accessible_resources": [
+        "js/*.js"
+    ],
+    "permissions": [
+        "storage",
+        "activeTab",
+        "webNavigation",
+        "<all_urls>"
+    ]
+}
