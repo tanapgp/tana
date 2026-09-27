@@ -1,77 +1,83 @@
-/*
-    Generate a key pair and store it
-*/
+(function () {
+    'use strict';
 
-const generateButton = document.getElementById('generate-key');
-// once button is clicked
-generateButton.addEventListener("click", function () {
-    // generate key pair
-    var crypt = new JSEncrypt({ default_key_size: 2048 });
-    crypt.getKey();
-    // store key pair
-    browser.storage.local.set(
-        {
-            "publicKey": crypt.getPublicKey(),
-            "privateKey": crypt.getPrivateKey()
-        }
-    );
-    window.location.reload();
-    alert("New key pair created, store it in a safe place! Note: To view it, refresh the page");
-});
+    var browserApi = typeof browser !== 'undefined' ? browser : (typeof chrome !== 'undefined' ? chrome : null);
 
-
-/*
-    Show the key pair
-*/
-
-//-- Public Key
-// go on the addon storage
-var getPublicKey = browser.storage.local.get('publicKey');
-// show the public key in content
-getPublicKey.then((res) => {
-    document.getElementById('public-key').innerHTML = res.publicKey;
-});
-//-- Private Key
-// go on the addon storage
-var getPrivateKey = browser.storage.local.get('privateKey');
-// show the public key in content
-getPrivateKey.then((res) => {
-    document.getElementById('private-key').innerHTML = res.privateKey;
-});
-
-
-
-/*
-    Deleting Key pair
-*/
-const deleteButton = document.getElementById('delete-keys');
-// once button is clicked
-deleteButton.addEventListener("click", function () {
-    // delete key pair
-    if (confirm("Are you sure you want to delete the key pair?")) {
-        browser.storage.local.remove(
-            ['publicKey', 'privateKey']
-        );
+    function getElement(selector) {
+        return document.getElementById(selector) || document.querySelector(selector);
     }
-});
 
-
-/*
-    Modify Key Pair
-*/
-
-const modifyButton = document.getElementById('modify-key');
-// once button is clicked
-modifyButton.addEventListener("click", function () {
-    // get key pair
-    var publicKey = document.getElementById("public-key").innerHTML;
-    var privateKey = document.getElementById("private-key").innerHTML;
-    // store key pair
-    browser.storage.local.set(
-        {
-            "publicKey": publicKey,
-            "privateKey": privateKey
+    function loadKeys() {
+        if (!browserApi || !browserApi.storage || !browserApi.storage.local) {
+            return;
         }
-    );
-    alert("Key pair saved");
-});
+
+        browserApi.storage.local.get(['publicKey', 'privateKey']).then(function (result) {
+            var publicKeyElement = getElement('public-key');
+            var privateKeyElement = getElement('private-key');
+
+            if (publicKeyElement) {
+                publicKeyElement.value = result.publicKey || '';
+            }
+
+            if (privateKeyElement) {
+                privateKeyElement.value = result.privateKey || '';
+            }
+        }).catch(function (error) {
+            console.error('[Tana] Unable to load key pair:', error);
+        });
+    }
+
+    function saveKeyPair(publicKey, privateKey) {
+        if (!browserApi || !browserApi.storage || !browserApi.storage.local) {
+            return Promise.resolve();
+        }
+
+        return browserApi.storage.local.set({
+            publicKey: publicKey || '',
+            privateKey: privateKey || ''
+        });
+    }
+
+    function bindButton(id, handler) {
+        var button = getElement(id);
+        if (button) {
+            button.addEventListener('click', handler);
+        }
+    }
+
+    function initializeOptions() {
+        bindButton('generate-key', function () {
+            var crypt = new JSEncrypt({ default_key_size: 2048 });
+            crypt.getKey();
+
+            saveKeyPair(crypt.getPublicKey(), crypt.getPrivateKey()).then(function () {
+                window.location.reload();
+                alert('New key pair created, store it in a safe place! Note: To view it, refresh the page');
+            });
+        });
+
+        bindButton('delete-keys', function () {
+            if (confirm('Are you sure you want to delete the key pair?')) {
+                browserApi.storage.local.remove(['publicKey', 'privateKey']);
+            }
+        });
+
+        bindButton('modify-key', function () {
+            var publicKey = getElement('public-key').value;
+            var privateKey = getElement('private-key').value;
+
+            saveKeyPair(publicKey, privateKey).then(function () {
+                alert('Key pair saved');
+            });
+        });
+
+        loadKeys();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeOptions);
+    } else {
+        initializeOptions();
+    }
+})();
