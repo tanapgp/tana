@@ -1,277 +1,326 @@
-/*
-    First part
-*/
-console.log('Tana launched successfully')
+(function () {
+    'use strict';
 
+    var browserApi = typeof browser !== 'undefined' ? browser : (typeof chrome !== 'undefined' ? chrome : null);
+    var helperApi = typeof window !== 'undefined' ? window.TanaCryptoHelpers : undefined;
 
-/*
-    Signatures
-*/
-// verify authenticity of a message
-function verifySigned(message, signature, publicKey) {
-    var verify = new JSEncrypt();
-    verify.setPublicKey(publicKey);
-    var verified = verify.verify(message, signature, CryptoJS.SHA256);
-    if (verified) {
-        return true;
+    if (!browserApi || !browserApi.storage || !browserApi.storage.local) {
+        return;
     }
-    else {
-        return false;
+
+    function getStorageKeys() {
+        return Promise.resolve(browserApi.storage.local.get(['publicKey', 'privateKey']))
+            .then(function (item) {
+                return {
+                    publicKey: item.publicKey || '',
+                    privateKey: item.privateKey || ''
+                };
+            })
+            .catch(function (error) {
+                console.error('[Tana] Could not read keys:', error);
+                return { publicKey: '', privateKey: '' };
+            });
     }
-}
 
-// sign a message
-function sign(message, privateKey) {
-    var sign = new JSEncrypt();
-    sign.setPrivateKey(privateKey);
-    var signature = sign.sign(message, CryptoJS.SHA256, "sha256");
-    return signature;
-}
+    function readText(element) {
+        if (!element) {
+            return '';
+        }
 
+        return element.textContent || element.innerHTML || '';
+    }
 
-/*
-    Encrypt / Decrypt
-*/
-// To avoid bugs with UTF-16 encryption
-function utf8_to_b64(stringgg) {
-    return window.btoa(encodeURIComponent(stringgg))
-}
+    function verifySigned(message, signature, publicKey) {
+        if (!message || !signature || !publicKey) {
+            return false;
+        }
 
+        try {
+            var verify = new JSEncrypt();
+            verify.setPublicKey(publicKey);
+            return !!verify.verify(message, signature, CryptoJS.SHA256);
+        } catch (error) {
+            console.error('[Tana] Signature verification failed:', error);
+            return false;
+        }
+    }
 
-// Decrypt with the private key
-function decrypt(message, privateKey, signaturePublicKey) {
-    var encryptedArray = message[1];
-    var decryptedArray = [];
-    var decrypt = new JSEncrypt();
+    function sign(message, privateKey) {
+        if (!message || !privateKey) {
+            return '';
+        }
 
-    for (var i = (1); i < encryptedArray.length; i++) {
-        decrypt.setPrivateKey(privateKey);
+        try {
+            var signer = new JSEncrypt();
+            signer.setPrivateKey(privateKey);
+            return signer.sign(message, CryptoJS.SHA256, 'sha256');
+        } catch (error) {
+            console.error('[Tana] Signing failed:', error);
+            return '';
+        }
+    }
 
-        decryptedArray.push(decrypt.decrypt(encryptedArray[i]));
-        //return decrypt.decrypt(message);
-    };
-    var cyphertext = decodeURIComponent(atob(decryptedArray.join("")));
+    function utf8ToBase64(value) {
+        if (typeof helperApi !== 'undefined' && typeof helperApi.utf8ToBase64 === 'function') {
+            return helperApi.utf8ToBase64(value);
+        }
 
-    // signature verification
-    var messageSignature = String(message[0].join(""));
-    var sig = signaturePublicKey
+        return window.btoa(encodeURIComponent(value).replace(/%([0-9A-F]{2})/g, function (_, hex) {
+            return String.fromCharCode(parseInt(hex, 16));
+        }));
+    }
 
-    var verified = verifySigned(cyphertext, messageSignature, sig);
-    if (verified == true) {
-        return cyphertext;
-    } else {
-        return "cyphertext is not verified";
-    };
-};
+    function chunkString(value, size) {
+        if (typeof helperApi !== 'undefined' && typeof helperApi.chunkString === 'function') {
+            return helperApi.chunkString(value, size);
+        }
 
-// Encrypt
-function encrypt(message, privateKey, publicKey) {
-    var ciphertext = utf8_to_b64(message);
+        if (typeof value !== 'string' || value.length === 0 || size <= 0) {
+            return [];
+        }
 
-    var response = [];
-    var encrypt = new JSEncrypt();
+        var chunks = [];
+        for (var index = 0; index < value.length; index += size) {
+            chunks.push(value.slice(index, index + size));
+        }
+        return chunks;
+    }
 
-    // sign the message and insert it in the response array
-    var signature = [];
-    signature.push(sign(message, privateKey));
-    response.push(signature);
+    function parseJson(value) {
+        if (typeof helperApi !== 'undefined' && typeof helperApi.parseJson === 'function') {
+            return helperApi.parseJson(value);
+        }
 
-    // split message in chunks of 240bit
-    messageLength = ciphertext.length;
-    var chunks = [];
-    var chunkSize = 240;
-    for (var i = 0; i < messageLength; i += chunkSize) {
-        chunks.push(ciphertext.substr(i, chunkSize));
-    };
+        try {
+            return JSON.parse(value);
+        } catch (error) {
+            return null;
+        }
+    }
 
-    var simple = [];
-    encrypt.setPublicKey(publicKey);
+    function decrypt(message, privateKey, signaturePublicKey) {
+        if (!Array.isArray(message) || !privateKey || !signaturePublicKey) {
+            return 'cyphertext is not verified';
+        }
 
-    for (var i = 0; i - 1 < chunks.length; i++) {
-        simple.push(encrypt.encrypt(chunks[i - 1]));
-    };
-    response.push(simple);
+        var encryptedArray = message[1] || [];
+        var decryptedParts = [];
+        var decryptor = new JSEncrypt();
+        decryptor.setPrivateKey(privateKey);
 
-    return response
-};
+        for (var index = 1; index < encryptedArray.length; index += 1) {
+            var value = decryptor.decrypt(encryptedArray[index]);
+            if (value) {
+                decryptedParts.push(value);
+            }
+        }
 
+        if (!decryptedParts.length) {
+            return 'cyphertext is not verified';
+        }
 
-/*
-    auto decryption
-*/
-function autoDecrypt() {
+        var ciphertext = decodeURIComponent(Array.from(atob(decryptedParts.join('')), function (charCode) {
+            return '%' + ('0' + charCode.toString(16)).slice(-2);
+        }).join(''));
 
-    // get the public and private key
-    var keyPair = browser.storage.local.get();
-    keyPair.then(onGot, onError);
+        var messageSignature = Array.isArray(message[0]) ? String(message[0].join('')) : '';
+        var verified = verifySigned(ciphertext, messageSignature, signaturePublicKey);
+        return verified ? ciphertext : 'cyphertext is not verified';
+    }
 
-    // if with got them
-    function onGot(item) {
-        var localPublicKey = item.publicKey;
-        var localPrivateKey = item.privateKey;
+    function encrypt(message, privateKey, publicKey) {
+        if (!message || !privateKey || !publicKey) {
+            return [];
+        }
 
-        // decrypt a message from a foreign user
-        function simpleDecryption() {
-            var elements = document.getElementsByClassName("tana-simple-decryption");
-            for (var i = 0; i < elements.length; i++) {
-                var element = elements[i];
+        var ciphertext = utf8ToBase64(message);
+        var response = [];
+        var signature = [sign(message, privateKey)];
+        response.push(signature);
 
-                signaturePublicKey = element.getAttribute('public-key');
-                var message = element.innerHTML;
+        var chunks = chunkString(ciphertext, 240);
+        var encryptedChunks = [];
+        var encryptor = new JSEncrypt();
+        encryptor.setPublicKey(publicKey);
 
-                // encrypt with button
-                if (element.getAttribute('decrypt-with-button') != null) {
-                    buttonId = element.getAttribute('decrypt-with-button');
-                    var button = document.getElementById(buttonId);
+        for (var index = 0; index < chunks.length; index += 1) {
+            var encryptedChunk = encryptor.encrypt(chunks[index]);
+            if (encryptedChunk) {
+                encryptedChunks.push(encryptedChunk);
+            }
+        }
 
-                    button.addEventListener("click", function () {
-                        var decrypted = decrypt(JSON.parse(message), localPrivateKey, signaturePublicKey);
-                        element.innerHTML = decrypted;
-                    });
-                } else {
-                    var decrypted = decrypt(JSON.parse(message), localPrivateKey, signaturePublicKey);
-                    element.innerHTML = decrypted;
-                };
-            };
-        };
-        simpleDecryption();
+        response.push(encryptedChunks);
+        return response;
+    }
 
-        // decrypt a message from the current user
-        function ownDecryption() {
-            var elements = document.getElementsByClassName("tana-own-decryption");
-            for (var i = 0; i < elements.length; i++) {
-                var element = elements[i];
-                var message = element.innerHTML;
+    function bindDecryptAction(element, decryptHandler, buttonSelector) {
+        if (!element) {
+            return;
+        }
 
-                // encrypt with button
-                if (element.getAttribute('decrypt-with-button') != null) {
-                    buttonId = element.getAttribute('decrypt-with-button');
-                    var button = document.getElementById(buttonId);
+        var buttonId = element.getAttribute(buttonSelector);
+        if (!buttonId) {
+            decryptHandler();
+            return;
+        }
 
-                    button.addEventListener("click", function () {
-                        var decrypted = decrypt(JSON.parse(message), localPrivateKey, localPublicKey);
-                        element.innerHTML = decrypted;
-                    });
+        var button = document.getElementById(buttonId);
+        if (button) {
+            button.addEventListener('click', decryptHandler);
+        }
+    }
 
-                } else {
-                    // without, autoEncrypt
-                    var decrypted = decrypt(JSON.parse(message), localPrivateKey, localPublicKey);
-                    element.innerHTML = decrypted;
-                };
-            };
-        };
-        ownDecryption();
+    function autoDecrypt() {
+        getStorageKeys().then(function (keys) {
+            if (!keys.privateKey) {
+                return;
+            }
 
-        // decrypt all elements on multi format
-        function multiDecryption() {
-            var divs = document.getElementsByClassName("tana-multi-decryption");
+            var localPublicKey = keys.publicKey;
+            var localPrivateKey = keys.privateKey;
 
-            for (var i = 0; i < divs.length; i++) {
-                var div = divs[i];
-                var type = div.nodeName;
-                if (type == "DIV") {
-                    var elements = div.getElementsByClassName("tana-sub-multi-decryption");
-                    var publicKeyUsed = div.getAttribute('public-key');
-
-                    // encrypt with button
-                    if (div.getAttribute('decrypt-with-button') != null) {
-
-                        buttonId = div.getAttribute('decrypt-with-button');
-                        var button = document.getElementById(buttonId);
-
-                        button.addEventListener("click", function () {
-                            for (var j = 0; j < elements.length; j++) {
-                                var element = elements[j];
-                                var message = element.innerHTML;
-                                var decrypted = decrypt(JSON.parse(message), localPrivateKey, publicKeyUsed);
-                                element.innerHTML = decrypted;
-                            };
-                        });
-
-                    } else {
-                        // decrypt all embedded elements
-                        for (var j = 0; j < elements.length; j++) {
-                            var element = elements[j];
-                            var message = element.innerHTML;
-                            var decrypted = decrypt(JSON.parse(message), localPrivateKey, publicKeyUsed);
-                            element.innerHTML = decrypted;
-                        };
-                    };
+            function decryptSimpleMessage(element, publicKey) {
+                var payload = parseJson(readText(element));
+                if (!payload) {
+                    return;
                 }
-                else {
-                    console.log('[Tana Error]: Wrong type for multi encryption, should be DIV');
-                };
-            };
-        };
-        multiDecryption();
-    };
 
-    function onError(error) {
-        console.log(`Error: ${error}`);
-    };
-};
-autoDecrypt();
+                var decrypted = decrypt(payload, localPrivateKey, publicKey);
+                if (decrypted !== 'cyphertext is not verified') {
+                    element.textContent = decrypted;
+                }
+            }
 
-
-
-/*
-    auto encryption
-*/
-function autoEncrypt() {
-    //get public and private keys
-    var keyPair = browser.storage.local.get();
-    keyPair.then(onGot, onError);
-
-    function onGot(item) {
-        var localPublicKey = item.publicKey;
-        var localPrivateKey = item.privateKey;
-
-        function autoEncryption() {
-
-            var form = document.getElementById("tana-encryption-form");
-
-            /////////////////////////
-            var button = form.querySelector('[id="tana-form-encrypt"]');
-
-            var receiverPublicKey = form.querySelector('[name="tana-public-key"]');
-            // once submit is clicked
-            button.addEventListener("click", function () {
-
-                if (form != null) {
-
-                    console.log("auto encrypt");
-
-                    // simple encryption
-                    var messages = form.querySelectorAll('[name="tana-to-encrypt"]');
-                    if (receiverPublicKey.value != null) {
-                        console.log("simple encryption");
-                        for (var j = 0; j < messages.length; j++) {
-                            var message = messages[j];
-                            var messageValue = message.value;
-                            var encrypted = encrypt(messageValue, localPrivateKey, receiverPublicKey.value);
-                            message.value = JSON.stringify(encrypted);
-                        }
-                    }
-
-                    // own encryption
-                    var messages = form.querySelectorAll('[name="tana-to-own-encrypt"]');
-                    console.log("own encryption")
-                    for (var r = 0; r < messages.length; r++) {
-                        var message = messages[r];
-                        var messageValue = message.value;
-                        var encrypted = encrypt(messageValue, localPrivateKey, localPublicKey);
-                        message.value = JSON.stringify(encrypted);
-                    }
-                    form.querySelector('[name="tana-encryption-state"]').value = "true";
-
+            Array.prototype.forEach.call(document.getElementsByClassName('tana-simple-decryption'), function (element) {
+                var publicKey = element.getAttribute('public-key') || '';
+                bindDecryptAction(element, function () {
+                    decryptSimpleMessage(element, publicKey);
+                }, 'decrypt-with-button');
+                if (!element.getAttribute('decrypt-with-button')) {
+                    decryptSimpleMessage(element, publicKey);
                 }
             });
-        }
-        autoEncryption();
+
+            Array.prototype.forEach.call(document.getElementsByClassName('tana-own-decryption'), function (element) {
+                bindDecryptAction(element, function () {
+                    var payload = parseJson(readText(element));
+                    if (!payload) {
+                        return;
+                    }
+
+                    var decrypted = decrypt(payload, localPrivateKey, localPublicKey);
+                    if (decrypted !== 'cyphertext is not verified') {
+                        element.textContent = decrypted;
+                    }
+                }, 'decrypt-with-button');
+                if (!element.getAttribute('decrypt-with-button')) {
+                    var payload = parseJson(readText(element));
+                    if (payload) {
+                        var decrypted = decrypt(payload, localPrivateKey, localPublicKey);
+                        if (decrypted !== 'cyphertext is not verified') {
+                            element.textContent = decrypted;
+                        }
+                    }
+                }
+            });
+
+            Array.prototype.forEach.call(document.getElementsByClassName('tana-multi-decryption'), function (div) {
+                var type = div.tagName;
+                if (type !== 'DIV') {
+                    console.log('[Tana Error]: Wrong type for multi encryption, should be DIV');
+                    return;
+                }
+
+                var publicKeyUsed = div.getAttribute('public-key') || '';
+                var elements = div.getElementsByClassName('tana-sub-multi-decryption');
+
+                bindDecryptAction(div, function () {
+                    Array.prototype.forEach.call(elements, function (element) {
+                        var payload = parseJson(readText(element));
+                        if (!payload) {
+                            return;
+                        }
+
+                        var decrypted = decrypt(payload, localPrivateKey, publicKeyUsed);
+                        if (decrypted !== 'cyphertext is not verified') {
+                            element.textContent = decrypted;
+                        }
+                    });
+                }, 'decrypt-with-button');
+
+                if (!div.getAttribute('decrypt-with-button')) {
+                    Array.prototype.forEach.call(elements, function (element) {
+                        var payload = parseJson(readText(element));
+                        if (!payload) {
+                            return;
+                        }
+
+                        var decrypted = decrypt(payload, localPrivateKey, publicKeyUsed);
+                        if (decrypted !== 'cyphertext is not verified') {
+                            element.textContent = decrypted;
+                        }
+                    });
+                }
+            });
+        });
     }
 
-    function onError(error) {
-        console.log(`Error: ${error}`);
+    function autoEncrypt() {
+        getStorageKeys().then(function (keys) {
+            if (!keys.publicKey || !keys.privateKey) {
+                return;
+            }
+
+            var form = document.getElementById('tana-encryption-form');
+            if (!form) {
+                return;
+            }
+
+            var button = form.querySelector('[id="tana-form-encrypt"]');
+            var receiverPublicKey = form.querySelector('[name="tana-public-key"]');
+            if (!button || !receiverPublicKey) {
+                return;
+            }
+
+            button.addEventListener('click', function () {
+                var messages = form.querySelectorAll('[name="tana-to-encrypt"]');
+                if (receiverPublicKey.value) {
+                    Array.prototype.forEach.call(messages, function (message) {
+                        if (!message.value) {
+                            return;
+                        }
+
+                        var encrypted = encrypt(message.value, keys.privateKey, receiverPublicKey.value);
+                        message.value = JSON.stringify(encrypted);
+                    });
+                }
+
+                var selfMessages = form.querySelectorAll('[name="tana-to-own-encrypt"]');
+                Array.prototype.forEach.call(selfMessages, function (message) {
+                    if (!message.value) {
+                        return;
+                    }
+
+                    var encrypted = encrypt(message.value, keys.privateKey, keys.publicKey);
+                    message.value = JSON.stringify(encrypted);
+                });
+
+                var state = form.querySelector('[name="tana-encryption-state"]');
+                if (state) {
+                    state.value = 'true';
+                }
+            });
+        });
     }
-}
-autoEncrypt();
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () {
+            autoDecrypt();
+            autoEncrypt();
+        });
+    } else {
+        autoDecrypt();
+        autoEncrypt();
+    }
+})();
